@@ -307,6 +307,28 @@ impl ContextResolver {
                 }
                 None => {
                     let mut ctx = self.session.spclient().get_context(resolve_uri).await;
+
+                    // a DJ context resolved by its uri comes back without tracks
+                    let lexicon = match ctx.as_ref() {
+                        Ok(c) if c.pages.iter().all(|p| p.tracks.is_empty()) => {
+                            lexicon_url(c).map(|url| (url.to_string(), c.metadata.clone()))
+                        }
+                        _ => None,
+                    };
+                    if let Some((url, metadata)) = lexicon {
+                        debug!(
+                            "<{resolve_uri}> came back without tracks, resolving it through {url}"
+                        );
+                        let mut ctx = self.session.spclient().get_context_from_url(&url).await;
+                        if let Ok(ctx) = ctx.as_mut() {
+                            ctx.uri = Some(next.context_uri().to_string());
+                            for (key, value) in metadata {
+                                ctx.metadata.entry(key).or_insert(value);
+                            }
+                        }
+                        return ctx;
+                    }
+
                     if let Ok(ctx) = ctx.as_mut() {
                         ctx.uri = Some(next.context_uri().to_string());
                         ctx.url = ctx.uri.as_ref().map(|s| format!("context://{s}"));
